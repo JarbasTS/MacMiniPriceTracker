@@ -1,0 +1,30 @@
+[package]
+name = "mac-mini-tracker-backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.7", features = ["macros"] }
+tokio = { version = "1.40", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "rust_decimal", "macros", "migrate"] }
+# Fork do reqwest que imita o fingerprint TLS/HTTP2 do Chrome (a Amazon devolvia 503 intermitente com rustls puro).
+wreq = { version = "0.16", features = ["json", "cookies", "gzip", "brotli", "query"] }
+wreq-util = "0.2"
+url = "2.5"
+scraper = "0.20"
+async-trait = "0.1"
+uuid = { version = "1.10", features = ["serde", "v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+rust_decimal = { version = "1.36", features = ["serde-with-float"] }
+tokio-cron-scheduler = "0.13"
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dotenvy = "0.15"
+urlencoding = "2.1"
+regex = "1.10"

@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    env_file: .env
+    # 127.0.0.1: acessível só de dentro da máquina. O Docker ignora o ufw, então o bind é a proteção real.
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      # O .env aponta para localhost (cargo fora do Docker); aqui o host é o serviço postgres. Senha vem do .env.
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Local: o browser chama localhost:8080. Atrás do túnel: PUBLIC_API_URL=/api (mesma origem; o túnel roteia /api para o backend).
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080/api}
+    ports:
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-3000}:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Só sobe com `docker compose --profile tunnel up -d` (no PC de dev fica de fora).
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.3
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+    profiles: ["tunnel"]
+
+volumes:
+  pgdata:
