@@ -65,7 +65,8 @@ pub async fn run_scrape(pool: &PgPool, client: &wreq::Client, store_filter: Opti
         };
         debug!(store = %store.slug, scraper = %store.scraper_type, "varrendo loja");
         let antes = report.found;
-        for (i, target) in targets.iter().enumerate() {
+        let store_targets: Vec<&SearchTarget> = targets.iter().filter(|t| targets_store(store, t)).collect();
+        for (i, target) in store_targets.into_iter().enumerate() {
             if i > 0 {
                 tokio::time::sleep(jitter()).await;
             }
@@ -135,6 +136,14 @@ async fn persist(pool: &PgPool, store: &Store, target: &SearchTarget, item: &Raw
     Ok(())
 }
 
+/// `scraper_config.chip_families` restringe a loja a esses chips; sem a chave, a loja busca todos os alvos.
+fn targets_store(store: &Store, target: &SearchTarget) -> bool {
+    match store.scraper_config["chip_families"].as_array() {
+        Some(chips) => chips.iter().any(|c| c.as_str().is_some_and(|c| c.eq_ignore_ascii_case(&target.chip_family))),
+        None => true,
+    }
+}
+
 /// Pausa de 2–4 s entre requisições à mesma loja (UUID v4 como fonte aleatória, sem crate nova).
 fn jitter() -> Duration {
     Duration::from_millis(2000 + (Uuid::new_v4().as_u128() % 2001) as u64)
@@ -156,6 +165,39 @@ mod tests {
             price_cash: Decimal::from(price),
             price_installments: None,
         }
+    }
+
+    #[test]
+    fn chip_families_filtra_alvos() {
+        let store = |cfg: serde_json::Value| Store {
+            id: Uuid::new_v4(),
+            slug: "ml".into(),
+            scraper_type: "mercado_livre".into(),
+            name: "ML".into(),
+            base_url: String::new(),
+            search_url_template: String::new(),
+            is_active: true,
+            scrape_interval_minutes: 30,
+            scraper_config: cfg,
+            created_at: chrono::Utc::now(),
+        };
+        let target = |chip: &str| SearchTarget {
+            id: Uuid::new_v4(),
+            name: format!("Mac mini {chip}"),
+            chip_family: chip.into(),
+            search_query: String::new(),
+            required_keywords: vec![],
+            excluded_keywords: vec![],
+            min_price_brl: Decimal::ZERO,
+            max_price_brl: None,
+            is_active: true,
+            created_at: chrono::Utc::now(),
+        };
+        let so_m6 = store(serde_json::json!({"chip_families": ["m6"]}));
+        assert!(targets_store(&so_m6, &target("M6")));
+        assert!(!targets_store(&so_m6, &target("M5")));
+        assert!(!targets_store(&so_m6, &target("M5 Pro")));
+        assert!(targets_store(&store(serde_json::json!({})), &target("M5")), "sem a chave busca todos");
     }
 
     // Usa as lojas e alvos semeados pelas migrations.
