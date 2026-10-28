@@ -11,6 +11,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use sqlx::PgPool;
 use rust_decimal::Decimal;
 use scraper::{ElementRef, Selector};
 use tracing::debug;
@@ -28,8 +29,7 @@ pub use mercado_livre::MercadoLivreScraper;
 
 #[async_trait]
 pub trait StoreScraper: Send + Sync {
-    fn scraper_type(&self) -> &'static str;
-    async fn scrape(&self, store: &Store, target: &SearchTarget, client: &wreq::Client) -> anyhow::Result<Vec<RawScrapedItem>>;
+    async fn scrape(&self, store: &Store, target: &SearchTarget, client: &wreq::Client, pool: &PgPool) -> anyhow::Result<Vec<RawScrapedItem>>;
 }
 
 pub fn scraper_for(scraper_type: &str) -> Option<&'static dyn StoreScraper> {
@@ -106,8 +106,10 @@ pub(crate) fn text(el: ElementRef) -> String {
     el.text().collect::<Vec<_>>().join(" ").split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Só http(s): o href vem de HTML de terceiros e vira link clicável (`javascript:` rodaria no dashboard).
 pub(crate) fn abs_url(base: &str, href: &str) -> Option<String> {
-    Some(url::Url::parse(base).ok()?.join(href).ok()?.to_string())
+    let u = url::Url::parse(base).ok()?.join(href).ok()?;
+    matches!(u.scheme(), "http" | "https").then(|| u.to_string())
 }
 
 /// Número JSON (`5499.9`) ou string numérica (`"5499.90"`) → Decimal exato, sem passar por f64.
@@ -125,6 +127,14 @@ pub(crate) fn img_src(el: ElementRef) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn abs_url_so_http() {
+        let base = "https://loja.com.br";
+        assert_eq!(abs_url(base, "/p/1").as_deref(), Some("https://loja.com.br/p/1"));
+        assert_eq!(abs_url(base, "javascript:alert(1)"), None);
+        assert_eq!(abs_url(base, "data:text/html,x"), None);
+    }
 
     #[test]
     fn retry_delay_regras() {

@@ -3,15 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { LoaderCircle, RefreshCw } from "lucide-react";
 
-import { ApiError, triggerScrape } from "@/lib/api";
+import { ApiError, getScrapeStatus, triggerScrape } from "@/lib/api";
 
-/** Dispara a varredura (202) e recarrega os dados ~5 s depois; 409 = já há uma rodando. */
+/** Dispara a varredura (202) e consulta o status a cada 3 s; recarrega os dados quando terminar. 409 = já há uma rodando. */
 export default function TriggerScrapeButton({ onDone }: { onDone: () => void }) {
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const timer = useRef<ReturnType<typeof setInterval>>(undefined);
 
-  useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => () => clearInterval(timer.current), []);
 
   async function handleClick() {
     setRunning(true);
@@ -22,10 +22,13 @@ export default function TriggerScrapeButton({ onDone }: { onDone: () => void }) 
     } catch (e) {
       setMessage(e instanceof ApiError && e.status === 409 ? "Varredura já em andamento" : (e as Error).message);
     }
-    timer.current = setTimeout(() => {
+    timer.current = setInterval(async () => {
+      const done = await getScrapeStatus().then((s) => !s.running, () => true);
+      if (!done) return;
+      clearInterval(timer.current);
       setRunning(false);
       onDone();
-    }, 5000);
+    }, 3000);
   }
 
   return (

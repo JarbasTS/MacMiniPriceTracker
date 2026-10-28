@@ -4,7 +4,6 @@ import type {
   ListingView,
   NewStore,
   NewTarget,
-  ScrapeReport,
   SearchTarget,
   StatsSummary,
   Store,
@@ -57,5 +56,6 @@ export const updateTarget = (id: string, data: TargetPatch) =>
   request<SearchTarget>(`/targets/${id}`, json("PATCH", data));
 export const deleteTarget = (id: string) => request<void>(`/targets/${id}`, { method: "DELETE" });
 
-/** Sem `wait`: o backend responde 202 e varre em background (409 se já houver uma varredura). */
-export const triggerScrape = () => request<{ status: string } | ScrapeReport>("/scrape/trigger", { method: "POST" });
+/** O backend responde 202 e varre em background (409 se já houver uma varredura). */
+export const triggerScrape = () => request<{ status: string }>("/scrape/trigger", { method: "POST" });
+export const getScrapeStatus = () => request<{ running: boolean }>("/scrape/status");

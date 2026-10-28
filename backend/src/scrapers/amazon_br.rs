@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use scraper::{ElementRef, Html};
+use sqlx::PgPool;
 use tracing::debug;
 
 use super::{abs_url, fetch_html, img_src, sanitizer::parse_brl, search_url, sel, text, StoreScraper};
@@ -9,11 +10,7 @@ pub struct AmazonBrScraper;
 
 #[async_trait]
 impl StoreScraper for AmazonBrScraper {
-    fn scraper_type(&self) -> &'static str {
-        "amazon_br"
-    }
-
-    async fn scrape(&self, store: &Store, target: &SearchTarget, client: &wreq::Client) -> anyhow::Result<Vec<RawScrapedItem>> {
+    async fn scrape(&self, store: &Store, target: &SearchTarget, client: &wreq::Client, _pool: &PgPool) -> anyhow::Result<Vec<RawScrapedItem>> {
         let html = fetch_html(client, &search_url(store, &target.search_query)).await?;
         if html.contains("validateCaptcha") {
             anyhow::bail!("captcha");

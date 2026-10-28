@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::Serialize;
 use sqlx::PgPool;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
@@ -13,7 +12,7 @@ use crate::models::{RawScrapedItem, SearchTarget, Store};
 /// Trava compartilhada entre cron e trigger manual: uma varredura por vez.
 pub type ScrapeLock = Arc<Mutex<()>>;
 
-#[derive(Serialize, Debug, Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct ScrapeReport {
     pub stores: usize,
     pub found: usize,
@@ -64,12 +63,13 @@ pub async fn run_scrape(pool: &PgPool, client: &wreq::Client, store_filter: Opti
             report.errors += 1;
             continue;
         };
-        debug!(store = %store.slug, scraper = scraper.scraper_type(), "varrendo loja");
+        debug!(store = %store.slug, scraper = %store.scraper_type, "varrendo loja");
+        let antes = report.found;
         for (i, target) in targets.iter().enumerate() {
             if i > 0 {
                 tokio::time::sleep(jitter()).await;
             }
-            let items = match scraper.scrape(store, target, client).await {
+            let items = match scraper.scrape(store, target, client, pool).await {
                 Ok(items) => items,
                 Err(e) => {
                     warn!(store = %store.slug, target = %target.name, "falha no scraping: {e:#}");
@@ -87,6 +87,10 @@ pub async fn run_scrape(pool: &PgPool, client: &wreq::Client, store_filter: Opti
                     }
                 }
             }
+        }
+        if report.found == antes {
+            // Layout novo ou bloqueio silencioso chegam aqui como lista vazia; alvo isolado sem resultado é normal.
+            warn!(store = %store.slug, "nenhum alvo retornou itens");
         }
     }
     info!(?report, "varredura concluída");
@@ -134,4 +138,40 @@ async fn persist(pool: &PgPool, store: &Store, target: &SearchTarget, item: &Raw
 /// Pausa de 2–4 s entre requisições à mesma loja (UUID v4 como fonte aleatória, sem crate nova).
 fn jitter() -> Duration {
     Duration::from_millis(2000 + (Uuid::new_v4().as_u128() % 2001) as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use rust_decimal::Decimal;
+
+    use super::*;
+
+    fn item(price: i64) -> RawScrapedItem {
+        RawScrapedItem {
+            external_id: "T1".into(),
+            title: "Mac mini M6".into(),
+            url: "https://x.com/T1".into(),
+            image_url: None,
+            seller_name: None,
+            price_cash: Decimal::from(price),
+            price_installments: None,
+        }
+    }
+
+    // Usa as lojas e alvos semeados pelas migrations.
+    #[ignore = "precisa de DATABASE_URL (Postgres ligado)"]
+    #[sqlx::test]
+    async fn persist_guarda_extremos_e_historico_sem_duplicar(pool: PgPool) -> sqlx::Result<()> {
+        let store: Store = sqlx::query_as("SELECT * FROM stores LIMIT 1").fetch_one(&pool).await?;
+        let target: SearchTarget = sqlx::query_as("SELECT * FROM search_targets LIMIT 1").fetch_one(&pool).await?;
+        for price in [5000, 5000, 4500] {
+            persist(&pool, &store, &target, &item(price)).await.unwrap();
+        }
+        let (lowest, highest, current): (Decimal, Decimal, Decimal) =
+            sqlx::query_as("SELECT lowest_price, highest_price, current_price FROM listings").fetch_one(&pool).await?;
+        assert_eq!((lowest, highest, current), (Decimal::from(4500), Decimal::from(5000), Decimal::from(4500)));
+        let (rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM price_history").fetch_one(&pool).await?;
+        assert_eq!(rows, 2, "preço repetido não cria linha nova");
+        Ok(())
+    }
 }

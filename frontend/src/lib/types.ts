@@ -75,13 +75,6 @@ export interface StatsSummary {
   last_scrape_at: string | null;
 }
 
-export interface ScrapeReport {
-  stores: number;
-  found: number;
-  accepted: number;
-  errors: number;
-}
-
 export type ListingSort = "price_asc" | "price_desc" | "recent";
 
 export interface NewStore {

@@ -1,29 +1,30 @@
 use std::sync::LazyLock;
 
+use anyhow::Context;
 use async_trait::async_trait;
+use chrono::{DateTime, Duration, Utc};
 use regex::Regex;
 use scraper::{ElementRef, Html};
 use serde_json::Value;
-use tracing::debug;
+use sqlx::PgPool;
+use tracing::{debug, info};
+use wreq::header::{AUTHORIZATION, CONTENT_TYPE};
+use wreq::StatusCode;
 
-use super::{abs_url, fetch_html, img_src, json_decimal, sanitizer::parse_brl, search_url, sel, text, StoreScraper};
+use super::{abs_url, fetch_html, img_src, json_decimal, sanitizer::parse_brl, search_url, send_with_retry, sel, text, StoreScraper};
 use crate::models::{RawScrapedItem, SearchTarget, Store};
+
+const API: &str = "https://api.mercadolibre.com";
 
 pub struct MercadoLivreScraper;
 
 #[async_trait]
 impl StoreScraper for MercadoLivreScraper {
-    fn scraper_type(&self) -> &'static str {
-        "mercado_livre"
-    }
-
-    async fn scrape(&self, store: &Store, target: &SearchTarget, client: &wreq::Client) -> anyhow::Result<Vec<RawScrapedItem>> {
-        if store.scraper_config["use_api_fallback"].as_bool() == Some(true) {
-            // A API pública passou a exigir token (401/403/429); qualquer falha cai no HTML.
-            match fetch_api(client, &target.search_query).await {
-                Ok(items) => return Ok(items),
-                Err(e) => debug!("ML API indisponível ({e}); usando HTML"),
-            }
+    async fn scrape(&self, store: &Store, target: &SearchTarget, client: &wreq::Client, pool: &PgPool) -> anyhow::Result<Vec<RawScrapedItem>> {
+        // Só o catálogo (/products) responde para app não certificado; a busca comum dá 403.
+        match fetch_api(pool, client, &target.search_query).await {
+            Ok(items) => return Ok(items),
+            Err(e) => debug!("ML API indisponível ({e:#}); usando HTML"),
         }
         let url = search_url(store, &target.search_query.replace(' ', "-"));
         let html = fetch_html(client, &url).await?;
@@ -35,38 +36,93 @@ impl StoreScraper for MercadoLivreScraper {
     }
 }
 
-async fn fetch_api(client: &wreq::Client, query: &str) -> anyhow::Result<Vec<RawScrapedItem>> {
-    let json: Value = client
-        .get("https://api.mercadolibre.com/sites/MLB/search")
-        .query(&[("q", query)])
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
-    Ok(parse_api(&json))
+/// Busca no catálogo e pega a oferta mais barata de cada produto.
+async fn fetch_api(pool: &PgPool, client: &wreq::Client, query: &str) -> anyhow::Result<Vec<RawScrapedItem>> {
+    let bearer = format!("Bearer {}", access_token(pool, client).await?);
+    let search: Value = send_with_retry(|| {
+        client
+            .get(format!("{API}/products/search"))
+            .query(&[("status", "active"), ("site_id", "MLB"), ("q", query)])
+            .header(AUTHORIZATION, &bearer)
+    })
+    .await?
+    .error_for_status()?
+    .json()
+    .await?;
+    let mut items = Vec::new();
+    for product in search["results"].as_array().into_iter().flatten() {
+        let Some(id) = product["id"].as_str() else { continue };
+        let resp = send_with_retry(|| client.get(format!("{API}/products/{id}/items")).header(AUTHORIZATION, &bearer)).await?;
+        if resp.status() == StatusCode::NOT_FOUND {
+            continue; // "No winners found": produto sem oferta ativa
+        }
+        let offers: Value = resp.error_for_status()?.json().await?;
+        items.extend(parse_product(product, &offers));
+    }
+    Ok(items)
 }
 
-fn parse_api(json: &Value) -> Vec<RawScrapedItem> {
-    json["results"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|r| {
-            Some(RawScrapedItem {
-                external_id: r["id"].as_str()?.to_string(),
-                title: r["title"].as_str()?.to_string(),
-                url: r["permalink"].as_str()?.to_string(),
-                image_url: r["thumbnail"].as_str().map(String::from),
-                seller_name: r["seller"]["nickname"].as_str().map(String::from),
-                price_cash: json_decimal(&r["price"])?,
-                price_installments: None,
-            })
-        })
-        .collect()
+fn parse_product(product: &Value, offers: &Value) -> Option<RawScrapedItem> {
+    let id = product["id"].as_str()?;
+    let price_cash = offers["results"].as_array()?.iter().filter_map(|o| json_decimal(&o["price"])).min()?;
+    Some(RawScrapedItem {
+        external_id: id.to_string(),
+        title: product["name"].as_str()?.to_string(),
+        url: format!("https://www.mercadolivre.com.br/p/{id}"),
+        image_url: product["pictures"][0]["url"].as_str().map(String::from),
+        seller_name: None,
+        price_cash,
+        price_installments: None,
+    })
 }
 
-/// `MLB-1234567` e `MLB1234567` viram o mesmo id (formato da API); sem match, a URL sem query/fragmento.
+/// Access token válido; renova com o refresh token do banco (semeado por `ML_REFRESH_TOKEN` na 1ª vez).
+/// O ML invalida o refresh token a cada uso, então o novo é gravado na mesma transação.
+async fn access_token(pool: &PgPool, client: &wreq::Client) -> anyhow::Result<String> {
+    let mut tx = pool.begin().await?;
+    // FOR UPDATE serializa renovações concorrentes: a segunda espera e reaproveita o token novo.
+    let row: Option<(String, Option<String>, Option<DateTime<Utc>>)> = sqlx::query_as(
+        "SELECT refresh_token, access_token, expires_at FROM oauth_tokens WHERE provider = 'mercado_livre' FOR UPDATE",
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let refresh = match row {
+        Some((_, Some(access), Some(exp))) if exp > Utc::now() + Duration::minutes(5) => return Ok(access),
+        Some((refresh, ..)) => refresh,
+        None => std::env::var("ML_REFRESH_TOKEN").context("ML_REFRESH_TOKEN não definida")?,
+    };
+    let client_id = std::env::var("ML_CLIENT_ID").context("ML_CLIENT_ID não definida")?;
+    let secret = std::env::var("ML_CLIENT_SECRET").context("ML_CLIENT_SECRET não definida")?;
+    let body = format!(
+        "grant_type=refresh_token&client_id={}&client_secret={}&refresh_token={}",
+        urlencoding::encode(&client_id),
+        urlencoding::encode(&secret),
+        urlencoding::encode(&refresh)
+    );
+    let resp = client.post(format!("{API}/oauth/token")).header(CONTENT_TYPE, "application/x-www-form-urlencoded").body(body).send().await?;
+    // Sem o corpo no erro: ele pode ecoar credenciais.
+    anyhow::ensure!(resp.status().is_success(), "renovação do token ML falhou: HTTP {}", resp.status());
+    let json: Value = resp.json().await?;
+    let access = json["access_token"].as_str().context("resposta sem access_token")?;
+    let new_refresh = json["refresh_token"].as_str().context("resposta sem refresh_token")?;
+    let expires_in = json["expires_in"].as_i64().unwrap_or(21600);
+    sqlx::query(
+        "INSERT INTO oauth_tokens (provider, refresh_token, access_token, expires_at)
+         VALUES ('mercado_livre', $1, $2, NOW() + make_interval(secs => $3))
+         ON CONFLICT (provider) DO UPDATE SET refresh_token = EXCLUDED.refresh_token,
+           access_token = EXCLUDED.access_token, expires_at = EXCLUDED.expires_at, updated_at = NOW()",
+    )
+    .bind(new_refresh)
+    .bind(access)
+    .bind(expires_in as f64)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    info!("token do Mercado Livre renovado");
+    Ok(access.to_string())
+}
+
+/// `MLB-1234567` e `MLB1234567` viram o mesmo id; sem match, a URL sem query/fragmento.
 pub fn external_id(url: &str) -> String {
     static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"MLB-?\d+").expect("regex estática"));
     match RE.find(url) {
@@ -144,21 +200,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_product_pega_oferta_mais_barata() {
+        let product = serde_json::json!({"id": "MLB28117648", "name": "Apple Mac mini M4 16GB", "pictures": [{"url": "https://http2.mlstatic.com/a.webp"}]});
+        let offers = serde_json::json!({"results": [{"price": 4700}, {"price": 4479.6}, {"price": null}]});
+        let it = parse_product(&product, &offers).unwrap();
+        assert_eq!(it.external_id, "MLB28117648");
+        assert_eq!(it.url, "https://www.mercadolivre.com.br/p/MLB28117648");
+        assert_eq!(it.price_cash, Decimal::from_str("4479.6").unwrap());
+        assert_eq!(it.image_url.as_deref(), Some("https://http2.mlstatic.com/a.webp"));
+        assert!(parse_product(&product, &serde_json::json!({"results": []})).is_none(), "sem oferta não vira item");
+    }
+
+    #[test]
     fn external_id_formatos() {
         assert_eq!(external_id("https://x.com/MLB-1234567-mac-mini"), "MLB1234567");
         assert_eq!(external_id("https://x.com/p/MLB1234567?a=1"), "MLB1234567");
         assert_eq!(external_id("https://x.com/produto?a=1"), "https://x.com/produto");
-    }
-
-    #[test]
-    fn parse_api_resultados() {
-        let json: Value = serde_json::from_str(
-            r#"{"results":[{"id":"MLB1","title":"Mac mini M5","permalink":"https://x/MLB1","thumbnail":"https://x/i.jpg","price":5499.9,"seller":{"nickname":"LOJA"}},{"id":"MLB2","title":"sem preço"}]}"#,
-        )
-        .unwrap();
-        let items = parse_api(&json);
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].price_cash, Decimal::from_str("5499.9").unwrap());
-        assert_eq!(items[0].seller_name.as_deref(), Some("LOJA"));
     }
 }

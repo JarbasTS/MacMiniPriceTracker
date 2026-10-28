@@ -50,13 +50,16 @@ export default function Dashboard() {
     };
   }, [reloadKey]);
 
+  // CHIPS são os padrões; chips de alvos criados depois entram pelo resumo.
+  const chips = [...new Set([...CHIPS, ...(summary?.by_chip.map((b) => b.chip_family) ?? [])])];
+
   const q = query.trim().toLowerCase();
   const visible = listings?.filter((l) => l.title.toLowerCase().includes(q)) ?? [];
 
   return (
     <div className="flex flex-col gap-6">
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-3" aria-label="Menor preço por chip">
-        {CHIPS.map((c) => {
+        {chips.map((c) => {
           const best = summary?.by_chip.find((b) => b.chip_family === c);
           return (
             <div key={c} className="rounded-lg border border-zinc-200 bg-white p-4">
@@ -76,7 +79,7 @@ export default function Dashboard() {
 
       <section className="flex flex-wrap items-center gap-3" aria-label="Filtros">
         <div className="flex rounded-md border border-zinc-300 bg-white p-0.5" role="group" aria-label="Chip">
-          {["", ...CHIPS].map((c) => (
+          {["", ...chips].map((c) => (
             <button
               key={c || "todos"}
               type="button"

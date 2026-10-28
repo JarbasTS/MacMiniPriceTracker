@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde_json::Value;
+use sqlx::PgPool;
 use tracing::debug;
 use wreq::header::{ACCEPT, REFERER};
 
@@ -11,11 +12,7 @@ pub struct KabumApiScraper;
 
 #[async_trait]
 impl StoreScraper for KabumApiScraper {
-    fn scraper_type(&self) -> &'static str {
-        "kabum_api"
-    }
-
-    async fn scrape(&self, store: &Store, target: &SearchTarget, client: &wreq::Client) -> anyhow::Result<Vec<RawScrapedItem>> {
+    async fn scrape(&self, store: &Store, target: &SearchTarget, client: &wreq::Client, _pool: &PgPool) -> anyhow::Result<Vec<RawScrapedItem>> {
         // A API só casa o termo com hífens ("mac-mini-m5"); com espaço devolve 404.
         let url = search_url(store, &target.search_query.replace(' ', "-"));
         let resp = send_with_retry(|| {

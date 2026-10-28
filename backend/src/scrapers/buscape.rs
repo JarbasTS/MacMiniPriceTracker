@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use scraper::Html;
 use serde_json::Value;
+use sqlx::PgPool;
 use tracing::debug;
 
 use super::{abs_url, fetch_html, json_decimal, search_url, sel, StoreScraper};
@@ -11,11 +12,7 @@ pub struct BuscapeScraper;
 
 #[async_trait]
 impl StoreScraper for BuscapeScraper {
-    fn scraper_type(&self) -> &'static str {
-        "buscape"
-    }
-
-    async fn scrape(&self, store: &Store, target: &SearchTarget, client: &wreq::Client) -> anyhow::Result<Vec<RawScrapedItem>> {
+    async fn scrape(&self, store: &Store, target: &SearchTarget, client: &wreq::Client, _pool: &PgPool) -> anyhow::Result<Vec<RawScrapedItem>> {
         let html = fetch_html(client, &search_url(store, &target.search_query)).await?;
         Ok(Self::parse_html(&html, &store.base_url))
     }

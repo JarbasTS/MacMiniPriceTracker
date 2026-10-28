@@ -1,17 +1,18 @@
 use std::str::FromStr;
+use std::sync::LazyLock;
 
+use regex::Regex;
 use rust_decimal::Decimal;
 
 use crate::models::SearchTarget;
 
 /// "R$ 5.499,90" -> 5499.90. Ponto é milhar, vírgula é decimal.
+/// Lê só o primeiro número depois de "R$" (ou do início): "1x de R$ 5.499,90" e "R$ 5.499,90 ou 10x R$ 549,99" dão 5499.90.
 pub fn parse_brl(raw: &str) -> Option<Decimal> {
-    let cleaned: String = raw
-        .chars()
-        .filter(|c| c.is_ascii_digit() || *c == ',')
-        .map(|c| if c == ',' { '.' } else { c })
-        .collect();
-    Decimal::from_str(&cleaned).ok()
+    static NUM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d+(?:\.\d{3})*(?:,\d{1,2})?").expect("regex estática"));
+    let after = raw.split_once("R$").map_or(raw, |(_, rest)| rest);
+    let num = NUM.find(after)?.as_str().replace('.', "").replace(',', ".");
+    Decimal::from_str(&num).ok()
 }
 
 /// Minúsculas, sem acentos, só tokens alfanuméricos, com espaço nas pontas
@@ -146,6 +147,8 @@ mod tests {
         assert_eq!(parse_brl("R$ 5.499,90"), Some(brl("5499.90")));
         assert_eq!(parse_brl("5499,00"), Some(brl("5499.00")));
         assert_eq!(parse_brl("R$ 6.200"), Some(brl("6200")));
+        assert_eq!(parse_brl("1x de R$ 5.499,90"), Some(brl("5499.90")));
+        assert_eq!(parse_brl("R$ 5.499,90 ou 10x R$ 549,99"), Some(brl("5499.90")));
         assert_eq!(parse_brl(""), None);
         assert_eq!(parse_brl("R$"), None);
     }

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde_json::Value;
+use sqlx::PgPool;
 use tracing::debug;
 
 use super::{fetch_html, json_decimal, StoreScraper};
@@ -10,12 +11,8 @@ pub struct AppleBrScraper;
 
 #[async_trait]
 impl StoreScraper for AppleBrScraper {
-    fn scraper_type(&self) -> &'static str {
-        "apple_br"
-    }
-
     // shortcut: a página é a mesma para todo alvo, então é baixada uma vez por alvo (3 req/varredura); o sanitizador separa M5/M5 Pro/M6. Cachear por varredura se o número de alvos crescer.
-    async fn scrape(&self, store: &Store, _target: &SearchTarget, client: &wreq::Client) -> anyhow::Result<Vec<RawScrapedItem>> {
+    async fn scrape(&self, store: &Store, _target: &SearchTarget, client: &wreq::Client, _pool: &PgPool) -> anyhow::Result<Vec<RawScrapedItem>> {
         let html = fetch_html(client, &store.search_url_template).await?;
         Ok(Self::parse_html(&html, &store.search_url_template))
     }

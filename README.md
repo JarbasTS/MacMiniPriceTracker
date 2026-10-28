@@ -8,7 +8,7 @@ Self-hosted dashboard that watches Brazilian e-commerce sites for **Mac mini M5 
 
 ## Features
 
-- **Multi-store scraping:** KaBuM (JSON API), Amazon BR, Apple Store BR, Buscapé, and Mercado Livre (HTML fallback).
+- **Multi-store scraping:** KaBuM (JSON API), Amazon BR, Apple Store BR, Buscapé, and Mercado Livre (catalog API with OAuth, HTML fallback).
 - **Stores configurable at runtime:** add a new shop from the UI with CSS selectors stored as JSONB. No recompiling.
 - **Smart filtering:** a sanitizer rejects cases, cables, "empty box" listings and wrong chips (an M5 Pro won't show up under the M5 target).
 - **Price history:** every scrape stores a price point, and the detail page charts it.
@@ -73,12 +73,13 @@ docs/        deploy guide
 | GET · POST / PATCH | `/api/stores` · `/api/stores/:id` | List, create and edit stores |
 | GET · POST / PATCH · DELETE | `/api/targets` · `/api/targets/:id` | Manage search targets |
 | POST | `/api/scrape/trigger` | Trigger a scrape now |
+| GET | `/api/scrape/status` | `{ "running": bool }`: is a scrape in progress |
 
 > The API has no built-in auth. In production it sits behind Cloudflare Access. See [docs/deploy.md](docs/deploy.md).
 
 ## Notes
 
-- Mercado Livre's official search API returns 403 even with OAuth for personal apps, so the scraper uses the public HTML page.
+- Mercado Livre: the regular search API (`/sites/MLB/search`) returns 403 for non-certified apps, but the catalog (`/products/search` + `/products/{id}/items`) works with an OAuth token. The rotating refresh token is stored in the `oauth_tokens` table, seeded once from `ML_REFRESH_TOKEN`.
 - Datacenter IPs get blocked more often than residential ones. Scrape intervals are configurable per store.
 
 ## License

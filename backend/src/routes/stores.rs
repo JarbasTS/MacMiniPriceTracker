@@ -60,8 +60,9 @@ fn validate(s: &Store) -> Result<(), AppError> {
     if !s.search_url_template.starts_with("http") || (needs_query && !s.search_url_template.contains("{query}")) {
         return bad("search_url_template deve começar com http e conter {query}".into());
     }
-    if s.scrape_interval_minutes < 1 {
-        return bad("scrape_interval_minutes deve ser >= 1".into());
+    // Teto de 24 h: a API só considera ativo o anúncio visto nos últimos 2 dias.
+    if !(1..=1440).contains(&s.scrape_interval_minutes) {
+        return bad("scrape_interval_minutes deve estar entre 1 e 1440".into());
     }
     if s.scraper_type == "dynamic_css" {
         let cfg: DynamicConfig = serde_json::from_value(s.scraper_config.clone())

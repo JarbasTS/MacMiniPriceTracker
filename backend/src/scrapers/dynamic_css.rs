@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use scraper::{ElementRef, Html, Selector};
 use serde::Deserialize;
+use sqlx::PgPool;
 use tracing::debug;
 
 use super::{abs_url, fetch_html, img_src, sanitizer::parse_brl, search_url, text, StoreScraper};
@@ -48,11 +49,7 @@ impl DynamicConfig {
 
 #[async_trait]
 impl StoreScraper for DynamicCssScraper {
-    fn scraper_type(&self) -> &'static str {
-        "dynamic_css"
-    }
-
-    async fn scrape(&self, store: &Store, target: &SearchTarget, client: &wreq::Client) -> anyhow::Result<Vec<RawScrapedItem>> {
+    async fn scrape(&self, store: &Store, target: &SearchTarget, client: &wreq::Client, _pool: &PgPool) -> anyhow::Result<Vec<RawScrapedItem>> {
         let cfg: DynamicConfig = serde_json::from_value(store.scraper_config.clone())?;
         let selectors = cfg.compile()?;
         let html = fetch_html(client, &search_url(store, &target.search_query)).await?;

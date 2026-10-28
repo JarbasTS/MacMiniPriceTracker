@@ -107,7 +107,7 @@ grep -c "$PASS" .env && unset PASS   # deve imprimir 2
 - O compose monta a `DATABASE_URL` do backend a partir de `POSTGRES_*`, com o host `postgres` da rede interna. A `DATABASE_URL` do `.env` só serve para rodar o cargo fora do Docker.
 - `PUBLIC_API_URL=/api` é lido **no build** do frontend. Se mudar, rode `docker compose build frontend && docker compose up -d frontend`.
 - `TUNNEL_TOKEN` fica vazio: nesta VM quem faz o túnel é o `cloudflared` do host.
-- Não copie os `ML_*` do PC: o Mercado Livre está desativado e o refresh token é de uso único.
+- Mercado Livre: copie `ML_CLIENT_ID`, `ML_CLIENT_SECRET` e o `ML_REFRESH_TOKEN` **atual** do PC. O backend só lê o refresh token do `.env` na primeira vez; depois ele vive na tabela `oauth_tokens` e muda a cada renovação. Ele é de uso único: só um banco pode usá-lo, então depois de copiar não rode o scraper do ML no PC (ou gere outro token para o dev).
 
 ## 4. Primeira subida
 
@@ -192,7 +192,7 @@ gunzip -c ARQUIVO.sql.gz | docker compose exec -T postgres psql -U mactracker -d
 - **IP de datacenter:** Amazon e KaBuM desconfiam mais de IP de nuvem do que de IP residencial. Os 0 erros obtidos no PC podem não se repetir. Acompanhe os `WARN` nos primeiros dias. Se aparecerem 503 constantes, aumente o `scrape_interval_minutes` da loja na tela **Lojas** e considere atualizar o `wreq-util` para um perfil de Chrome mais novo (`Emulation::Chrome…` em `backend/src/scrapers/mod.rs`).
 - **CPU compartilhada:** fora dos builds, o monitor usa pouco (uma varredura a cada 30 min por loja, < 1 GB de RAM). Os builds são o único momento de disputa com o outro app.
 - **Recuperação de instância Always Free:** a Oracle pode recuperar VMs Always Free ociosas. Com o scheduler a cada 5 min, o risco é baixo. *Pay As You Go* elimina de vez.
-- **Testes do backend** no PC precisam da imagem com cmake/clang: `docker build --target chef -t mmt-rust ./backend`.
+- **Testes do backend** no PC precisam da imagem com cmake/clang: `docker build --target chef -t mmt-rust ./backend`. O teste de banco (`persist_guarda_extremos_e_historico_sem_duplicar`) é `#[ignore]`: suba o Postgres (`docker compose up -d postgres`), exporte `DATABASE_URL` e rode `cargo test -- --ignored`.
 - **Build no Windows via Git Bash:** passar `--build-arg NEXT_PUBLIC_API_URL=/api` direto no `docker build` sofre conversão de caminho do MSYS (vira `C:/Program Files/Git/api`). Use `MSYS_NO_PATHCONV=1` ou o compose, que lê do `.env`. Na VM Linux isso não ocorre.
 
 | Sintoma | Causa provável |
