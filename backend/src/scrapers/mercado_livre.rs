@@ -80,11 +80,21 @@ async fn product_offers(client: &wreq::Client, bearer: &str, id: &str) -> anyhow
 
 fn parse_product(product: &Value, offers: &Value) -> Option<RawScrapedItem> {
     let id = product["id"].as_str()?;
-    let price_cash = offers["results"].as_array()?.iter().filter_map(|o| json_decimal(&o["price"])).min()?;
+    let (price_cash, offer) = offers["results"]
+        .as_array()?
+        .iter()
+        .filter(|o| o["condition"].as_str() != Some("used"))
+        .filter_map(|o| Some((json_decimal(&o["price"])?, o)))
+        .min_by_key(|(price, _)| *price)?;
+    // Sem o item_id, /p/{id} abre a oferta vencedora (buy box), que nem sempre é a mais barata.
+    let url = match offer["item_id"].as_str() {
+        Some(item) => format!("https://www.mercadolivre.com.br/p/{id}?pdp_filters=item_id:{item}"),
+        None => format!("https://www.mercadolivre.com.br/p/{id}"),
+    };
     Some(RawScrapedItem {
         external_id: id.to_string(),
         title: product["name"].as_str()?.to_string(),
-        url: format!("https://www.mercadolivre.com.br/p/{id}"),
+        url,
         image_url: product["pictures"][0]["url"].as_str().map(String::from),
         seller_name: None,
         price_cash,
@@ -218,11 +228,16 @@ mod tests {
     #[test]
     fn parse_product_pega_oferta_mais_barata() {
         let product = serde_json::json!({"id": "MLB28117648", "name": "Apple Mac mini M4 16GB", "pictures": [{"url": "https://http2.mlstatic.com/a.webp"}]});
-        let offers = serde_json::json!({"results": [{"price": 4700}, {"price": 4479.6}, {"price": null}]});
+        let offers = serde_json::json!({"results": [
+            {"item_id": "MLB1", "price": 4700, "condition": "new"},
+            {"item_id": "MLB2", "price": 4479.6, "condition": "new"},
+            {"item_id": "MLB3", "price": 3900, "condition": "used"},
+            {"price": null}
+        ]});
         let it = parse_product(&product, &offers).unwrap();
         assert_eq!(it.external_id, "MLB28117648");
-        assert_eq!(it.url, "https://www.mercadolivre.com.br/p/MLB28117648");
-        assert_eq!(it.price_cash, Decimal::from_str("4479.6").unwrap());
+        assert_eq!(it.url, "https://www.mercadolivre.com.br/p/MLB28117648?pdp_filters=item_id:MLB2");
+        assert_eq!(it.price_cash, Decimal::from_str("4479.6").unwrap(), "usado não entra");
         assert_eq!(it.image_url.as_deref(), Some("https://http2.mlstatic.com/a.webp"));
         assert!(parse_product(&product, &serde_json::json!({"results": []})).is_none(), "sem oferta não vira item");
     }
