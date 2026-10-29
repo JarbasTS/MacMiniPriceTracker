@@ -7,11 +7,11 @@ use regex::Regex;
 use scraper::{ElementRef, Html};
 use serde_json::Value;
 use sqlx::PgPool;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use wreq::header::{AUTHORIZATION, CONTENT_TYPE};
 use wreq::StatusCode;
 
-use super::{abs_url, fetch_html, img_src, json_decimal, sanitizer::parse_brl, search_url, send_with_retry, sel, text, StoreScraper};
+use super::{abs_url, fetch_html, img_src, json_decimal, sanitizer, sanitizer::parse_brl, search_url, send_with_retry, sel, text, StoreScraper};
 use crate::models::{RawScrapedItem, SearchTarget, Store};
 
 const API: &str = "https://api.mercadolibre.com";
@@ -22,7 +22,7 @@ pub struct MercadoLivreScraper;
 impl StoreScraper for MercadoLivreScraper {
     async fn scrape(&self, store: &Store, target: &SearchTarget, client: &wreq::Client, pool: &PgPool) -> anyhow::Result<Vec<RawScrapedItem>> {
         // Só o catálogo (/products) responde para app não certificado; a busca comum dá 403.
-        match fetch_api(pool, client, &target.search_query).await {
+        match fetch_api(pool, client, target).await {
             Ok(items) => return Ok(items),
             Err(e) => debug!("ML API indisponível ({e:#}); usando HTML"),
         }
@@ -36,30 +36,46 @@ impl StoreScraper for MercadoLivreScraper {
     }
 }
 
-/// Busca no catálogo e pega a oferta mais barata de cada produto.
-async fn fetch_api(pool: &PgPool, client: &wreq::Client, query: &str) -> anyhow::Result<Vec<RawScrapedItem>> {
+/// Busca no catálogo e pega a oferta mais barata de cada produto cujo nome bate com o alvo.
+async fn fetch_api(pool: &PgPool, client: &wreq::Client, target: &SearchTarget) -> anyhow::Result<Vec<RawScrapedItem>> {
     let bearer = format!("Bearer {}", access_token(pool, client).await?);
     let search: Value = send_with_retry(|| {
         client
             .get(format!("{API}/products/search"))
-            .query(&[("status", "active"), ("site_id", "MLB"), ("q", query)])
+            .query(&[("status", "active"), ("site_id", "MLB"), ("q", target.search_query.as_str()), ("limit", "50")])
             .header(AUTHORIZATION, &bearer)
     })
     .await?
     .error_for_status()?
     .json()
     .await?;
+    let products = search["results"].as_array().map(Vec::as_slice).unwrap_or_default();
+    // O catálogo mistura acessórios e chips antigos; filtrar antes poupa uma requisição por produto.
+    let relevant: Vec<&Value> =
+        products.iter().filter(|p| p["name"].as_str().is_some_and(|n| sanitizer::matches_keywords(n, target))).collect();
     let mut items = Vec::new();
-    for product in search["results"].as_array().into_iter().flatten() {
+    for product in &relevant {
         let Some(id) = product["id"].as_str() else { continue };
-        let resp = send_with_retry(|| client.get(format!("{API}/products/{id}/items")).header(AUTHORIZATION, &bearer)).await?;
-        if resp.status() == StatusCode::NOT_FOUND {
-            continue; // "No winners found": produto sem oferta ativa
-        }
-        let offers: Value = resp.error_for_status()?.json().await?;
+        let offers = match product_offers(client, &bearer, id).await {
+            Ok(Some(offers)) => offers,
+            Ok(None) => continue, // "No winners found": produto sem oferta ativa
+            Err(e) => {
+                warn!(product = id, "ML: falha ao ler ofertas: {e:#}");
+                continue;
+            }
+        };
         items.extend(parse_product(product, &offers));
     }
+    info!(target = %target.name, catalogo = products.len(), relevantes = relevant.len(), com_oferta = items.len(), "ML: busca no catálogo");
     Ok(items)
+}
+
+async fn product_offers(client: &wreq::Client, bearer: &str, id: &str) -> anyhow::Result<Option<Value>> {
+    let resp = send_with_retry(|| client.get(format!("{API}/products/{id}/items")).header(AUTHORIZATION, bearer)).await?;
+    if resp.status() == StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    Ok(Some(resp.error_for_status()?.json().await?))
 }
 
 fn parse_product(product: &Value, offers: &Value) -> Option<RawScrapedItem> {

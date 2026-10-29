@@ -19,4 +19,4 @@ export function formatDateTime(value: string | number | null | undefined) {
   return value === null || value === undefined ? "—" : dateTime.format(new Date(value));
 }
 
-export const CHIPS = ["M5", "M5 Pro", "M6"] as const;
+export const CHIPS = ["M5", "M5 Pro", "M6", "PS5"] as const;

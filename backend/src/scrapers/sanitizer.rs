@@ -35,26 +35,23 @@ pub fn normalize(s: &str) -> String {
     format!(" {} ", mapped.split_whitespace().collect::<Vec<_>>().join(" "))
 }
 
+/// `"ps5|playstation 5"` aceita qualquer uma das alternativas.
 fn has_keyword(normalized: &str, kw: &str) -> bool {
-    let kw = normalize(kw);
-    let kw = kw.trim();
-    !kw.is_empty() && normalized.contains(&format!(" {kw} "))
+    kw.split('|').any(|alt| {
+        let alt = normalize(alt);
+        let alt = alt.trim();
+        !alt.is_empty() && normalized.contains(&format!(" {alt} "))
+    })
+}
+
+/// Só as palavras do título; o ML usa isto para não buscar ofertas de produto irrelevante.
+pub fn matches_keywords(title: &str, target: &SearchTarget) -> bool {
+    let t = normalize(title);
+    target.required_keywords.iter().all(|kw| has_keyword(&t, kw)) && !target.excluded_keywords.iter().any(|kw| has_keyword(&t, kw))
 }
 
 pub fn is_valid(title: &str, price: Decimal, target: &SearchTarget) -> bool {
-    let t = normalize(title);
-
-    if !target.required_keywords.iter().all(|kw| has_keyword(&t, kw)) {
-        return false;
-    }
-    if target.excluded_keywords.iter().any(|kw| has_keyword(&t, kw)) {
-        return false;
-    }
-    // Alvo base (ex.: M5) não aceita variantes Pro/Max.
-    if !target.chip_family.to_lowercase().contains("pro") && (has_keyword(&t, "pro") || has_keyword(&t, "max")) {
-        return false;
-    }
-    price >= target.min_price_brl && target.max_price_brl.map_or(true, |max| price <= max)
+    matches_keywords(title, target) && price >= target.min_price_brl && target.max_price_brl.map_or(true, |max| price <= max)
 }
 
 #[cfg(test)]
@@ -83,14 +80,23 @@ mod tests {
         }
     }
 
+    // Alvos base excluem Pro/Max pela lista (migration 5), não por regra fixa.
+    fn sem_pro(mut t: SearchTarget) -> SearchTarget {
+        t.excluded_keywords.extend(["pro".to_string(), "max".to_string()]);
+        t
+    }
+
     fn m5() -> SearchTarget {
-        target("M5", &["mac", "mini", "m5"], 3800)
+        sem_pro(target("M5", &["mac", "mini", "m5"], 3800))
     }
     fn m5_pro() -> SearchTarget {
         target("M5 Pro", &["mac", "mini", "m5", "pro"], 6500)
     }
     fn m6() -> SearchTarget {
-        target("M6", &["mac", "mini", "m6"], 4200)
+        sem_pro(target("M6", &["mac", "mini", "m6"], 4200))
+    }
+    fn ps5() -> SearchTarget {
+        target("PS5", &["ps5|playstation 5|playstation5"], 2000)
     }
     fn brl(s: &str) -> Decimal {
         Decimal::from_str(s).unwrap()
@@ -119,6 +125,16 @@ mod tests {
         let t = "Mac mini M5 Pro 24GB";
         assert!(!is_valid(t, brl("9000"), &m5()));
         assert!(is_valid(t, brl("9000"), &m5_pro()));
+    }
+
+    #[test]
+    fn ps5_aceita_variantes() {
+        assert!(is_valid("Console PlayStation®5 Slim Digital 1TB", brl("3200"), &ps5()));
+        assert!(is_valid("Sony PS5 Pro 2TB", brl("5500"), &ps5()));
+        assert!(is_valid("Playstation5 Edição Mídia Física", brl("3500"), &ps5()));
+        assert!(!is_valid("Capa Para PS5 Slim", brl("3000"), &ps5()));
+        assert!(!is_valid("Jogo EA FC 26 PS5", brl("300"), &ps5()));
+        assert!(!is_valid("PlayStation 4 Slim", brl("2500"), &ps5()));
     }
 
     #[test]
