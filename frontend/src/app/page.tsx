@@ -58,12 +58,12 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-3" aria-label="Menor preço por chip">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Menor preço por chip">
         {chips.map((c) => {
           const best = summary?.by_chip.find((b) => b.chip_family === c);
           return (
             <div key={c} className="rounded-lg border border-zinc-200 bg-white p-4">
-              <p className="text-sm text-zinc-500">Mac mini {c}</p>
+              <p className="text-sm text-zinc-500">{/^M\d/.test(c) ? `Mac mini ${c}` : c}</p>
               {best ? (
                 <Link href={`/listings/${best.listing_id}`} className="block hover:underline">
                   <p className="text-2xl font-semibold">{formatBRL(best.min_price)}</p>
