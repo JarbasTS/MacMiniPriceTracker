@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Mac mini Tracker",
-  description: "Monitor de preços do Mac mini M5, M5 Pro e M6",
+  description: "Monitor de preços do Mac mini M4, M5 Pro e M6",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

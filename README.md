@@ -1,6 +1,6 @@
 # Mac mini Price Tracker
 
-Self-hosted dashboard that watches Brazilian e-commerce sites for **Mac mini M5 / M5 Pro / M6** listings, filters out accessories and wrong models, and keeps the price history of each one.
+Self-hosted dashboard that watches Brazilian e-commerce sites for **Mac mini M4 / M5 Pro / M6** listings, filters out accessories and wrong models, and keeps the price history of each one.
 
 <!-- Add a screenshot at docs/screenshot.png and uncomment:
 ![Dashboard](docs/screenshot.png)

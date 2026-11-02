@@ -86,7 +86,7 @@ async fn create(State(st): State<AppState>, body: Result<Json<NewStore>, JsonRej
         base_url: b.base_url,
         search_url_template: b.search_url_template,
         is_active: b.is_active.unwrap_or(true),
-        scrape_interval_minutes: b.scrape_interval_minutes.unwrap_or(30),
+        scrape_interval_minutes: b.scrape_interval_minutes.unwrap_or(60),
         scraper_config: b.scraper_config.unwrap_or_else(|| Value::Object(Default::default())),
         created_at: Utc::now(),
     };

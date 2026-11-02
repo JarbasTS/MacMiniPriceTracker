@@ -128,6 +128,17 @@ mod tests {
     }
 
     #[test]
+    fn m4_aceita_m4_e_reprova_m5() {
+        // Mesma lista da migration 7: troca m4 por m5/m6.
+        let mut t = sem_pro(target("M4", &["mac", "mini", "m4"], 3500));
+        t.excluded_keywords.retain(|k| k != "m4");
+        t.excluded_keywords.extend(["m5".to_string(), "m6".to_string()]);
+        assert!(is_valid("Apple Mac mini M4 16GB 256GB", brl("4999"), &t));
+        assert!(!is_valid("Apple Mac mini M5 16GB", brl("4999"), &t));
+        assert!(!is_valid("Mac mini M4 Pro 24GB", brl("9000"), &t));
+    }
+
+    #[test]
     fn ps5_aceita_variantes() {
         assert!(is_valid("Console PlayStation®5 Slim Digital 1TB", brl("3200"), &ps5()));
         assert!(is_valid("Sony PS5 Pro 2TB", brl("5500"), &ps5()));
