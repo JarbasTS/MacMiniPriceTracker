@@ -8,6 +8,7 @@ import ListingCard from "@/components/ListingCard";
 import TriggerScrapeButton from "@/components/TriggerScrapeButton";
 import { getListings, getStores, getSummary } from "@/lib/api";
 import type { ListingView, StatsSummary, Store } from "@/lib/types";
+import { useIsAdmin } from "@/lib/useIsAdmin";
 import { CHIPS, cn, formatBRL, formatDateTime } from "@/lib/utils";
 
 export default function Dashboard() {
@@ -21,6 +22,7 @@ export default function Dashboard() {
   const [summary, setSummary] = useState<StatsSummary | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const admin = useIsAdmin();
 
   useEffect(() => {
     let alive = true;
@@ -115,9 +117,11 @@ export default function Dashboard() {
             className="w-full rounded-md border border-zinc-300 bg-white py-2 pr-2.5 pl-8 text-sm"
           />
         </label>
-        <div className="ml-auto">
-          <TriggerScrapeButton onDone={() => setReloadKey((k) => k + 1)} />
-        </div>
+        {admin && (
+          <div className="ml-auto">
+            <TriggerScrapeButton onDone={() => setReloadKey((k) => k + 1)} />
+          </div>
+        )}
       </section>
 
       {summary && (

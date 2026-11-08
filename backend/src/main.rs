@@ -1,3 +1,4 @@
+mod auth;
 mod config;
 mod db;
 mod error;
@@ -9,7 +10,7 @@ mod scrapers;
 use std::sync::Arc;
 
 use tokio::net::TcpListener;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
 use routes::AppState;
@@ -22,7 +23,12 @@ async fn main() -> anyhow::Result<()> {
     let pool = db::connect(&cfg).await?;
     info!("migrations ok");
 
-    let state = AppState { pool, client: scrapers::http_client()?, scrape_lock: Arc::default() };
+    if cfg.access.is_none() {
+        warn!("Cloudflare Access não configurado: qualquer um pode alterar dados (ok só em dev)");
+    }
+    let client = scrapers::http_client()?;
+    let auth = Arc::new(auth::Auth::new(cfg.access.clone(), client.clone()));
+    let state = AppState { pool, client, scrape_lock: Arc::default(), auth };
     // O handle precisa viver até o fim do processo.
     let _scheduler = scheduler::start(state.pool.clone(), state.client.clone(), state.scrape_lock.clone()).await?;
 

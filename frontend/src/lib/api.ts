@@ -59,3 +59,6 @@ export const deleteTarget = (id: string) => request<void>(`/targets/${id}`, { me
 /** O backend responde 202 e varre em background (409 se já houver uma varredura). */
 export const triggerScrape = () => request<{ status: string }>("/scrape/trigger", { method: "POST" });
 export const getScrapeStatus = () => request<{ running: boolean }>("/scrape/status");
+
+/** Quem o Cloudflare Access autenticou; só admin pode escrever. */
+export const getMe = () => request<{ email: string | null; admin: boolean }>("/me");

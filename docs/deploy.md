@@ -163,6 +163,13 @@ curl -s -o /dev/null -w "%{http_code}\n" https://<app>.<seu-dominio>/   # 200
 
 Se os nomes dos menus estiverem diferentes no painel em português, use a busca do painel (Ctrl+K) com "Access" / "Aplicativos".
 
+4. **Amigos só leitura (opcional).** O backend valida o JWT do Access e só deixa `ADMIN_EMAILS` alterarem dados. No `.env` da VM:
+   - `CF_ACCESS_TEAM_DOMAIN=https://<team>.cloudflareaccess.com` (Zero Trust → Settings → Team name)
+   - `CF_ACCESS_AUD=<AUD tag>` (Access → Applications → `Mac mini Tracker` → Overview → Application Audience (AUD) Tag)
+   - `ADMIN_EMAILS=<seu-email>`
+
+   Rode `docker compose up --build -d` e confira `https://<app>.<seu-dominio>/api/me` (`"admin": true`). Só depois inclua os e-mails dos amigos na policy. Para eles, o dashboard não mostra Lojas, Alvos nem o botão de varredura, e qualquer escrita na API dá 403.
+
 ## 7. Operação
 
 | Tarefa | Comando (em `~/mac-mini-tracker`) |

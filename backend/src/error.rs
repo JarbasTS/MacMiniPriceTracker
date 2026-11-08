@@ -14,6 +14,10 @@ pub enum AppError {
     BadRequest(String),
     #[error("{0}")]
     Conflict(String),
+    #[error("não autenticado")]
+    Unauthorized,
+    #[error("só o administrador pode alterar")]
+    Forbidden,
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -53,6 +57,8 @@ impl IntoResponse for AppError {
             AppError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
+            AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
+            AppError::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
             AppError::Internal(err) => {
                 // Detalhe só no log; o cliente recebe mensagem genérica.
                 tracing::error!("erro interno: {err:?}");

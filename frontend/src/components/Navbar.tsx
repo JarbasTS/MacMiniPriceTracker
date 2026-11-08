@@ -3,15 +3,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { useIsAdmin } from "@/lib/useIsAdmin";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
   { href: "/", label: "Dashboard" },
-  { href: "/settings/stores", label: "Lojas" },
-  { href: "/settings/targets", label: "Alvos" },
+  { href: "/settings/stores", label: "Lojas", admin: true },
+  { href: "/settings/targets", label: "Alvos", admin: true },
 ];
 
-function NavbarView({ pathname }: { pathname: string | null }) {
+function NavbarView({ pathname, admin }: { pathname: string | null; admin: boolean }) {
   return (
     <header className="border-b border-zinc-200 bg-white">
       <nav className="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3">
@@ -19,7 +20,7 @@ function NavbarView({ pathname }: { pathname: string | null }) {
           Mac mini Tracker
         </Link>
         <ul className="flex gap-1 text-sm">
-          {LINKS.map(({ href, label }) => {
+          {LINKS.filter((l) => admin || !l.admin).map(({ href, label }) => {
             // "/" só ativa na raiz; as outras ativam também nas subpáginas.
             const active = pathname !== null && (href === "/" ? pathname === "/" : pathname.startsWith(href));
             return (
@@ -44,10 +45,10 @@ function NavbarView({ pathname }: { pathname: string | null }) {
 }
 
 export default function Navbar() {
-  return <NavbarView pathname={usePathname()} />;
+  return <NavbarView pathname={usePathname()} admin={useIsAdmin()} />;
 }
 
 /** Fallback do Suspense no layout: mesma barra, sem item ativo (o pathname ainda não resolveu). */
 export function NavbarFallback() {
-  return <NavbarView pathname={null} />;
+  return <NavbarView pathname={null} admin={false} />;
 }
