@@ -98,6 +98,14 @@ mod tests {
     fn ps5() -> SearchTarget {
         target("PS5", &["ps5|playstation 5|playstation5"], 2000)
     }
+    fn ssd() -> SearchTarget {
+        let mut t = target("SSD 1TB", &["ssd", "m 2|m2|nvme", "1tb|1 tb|1000gb|1000 gb"], 250);
+        t.excluded_keywords = ["case", "gaveta", "adaptador", "enclosure", "dissipador", "heatsink", "externo", "portatil", "usb", "kit", "usado", "2tb", "2 tb", "4tb", "4 tb", "512gb", "500gb", "256gb", "notebook", "macbook", "pc", "computador", "gamer", "desktop"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        t
+    }
     fn brl(s: &str) -> Decimal {
         Decimal::from_str(s).unwrap()
     }
@@ -146,6 +154,17 @@ mod tests {
         assert!(!is_valid("Capa Para PS5 Slim", brl("3000"), &ps5()));
         assert!(!is_valid("Jogo EA FC 26 PS5", brl("300"), &ps5()));
         assert!(!is_valid("PlayStation 4 Slim", brl("2500"), &ps5()));
+    }
+
+    #[test]
+    fn ssd_1tb() {
+        assert!(is_valid("SSD Kingston NV3 1TB M.2 NVMe", brl("450"), &ssd()));
+        assert!(is_valid("SSD WD Black SN850X 1 TB M.2 2280", brl("700"), &ssd()));
+        assert!(!is_valid("SSD 2TB M.2 NVMe", brl("900"), &ssd()));
+        assert!(!is_valid("Case Gaveta USB para SSD M.2 1TB", brl("300"), &ssd()));
+        assert!(!is_valid("SSD 1TB SATA 2.5", brl("400"), &ssd()));
+        assert!(!is_valid("Notebook 16GB SSD NVMe 1TB", brl("1500"), &ssd()));
+        assert!(!is_valid("SSD Externo Portátil 1TB NVMe", brl("500"), &ssd()));
     }
 
     #[test]

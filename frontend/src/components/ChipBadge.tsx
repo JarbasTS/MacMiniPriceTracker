@@ -5,6 +5,7 @@ const COLORS: Record<string, string> = {
   "M5 Pro": "bg-violet-100 text-violet-800",
   M6: "bg-emerald-100 text-emerald-800",
   PS5: "bg-blue-100 text-blue-800",
+  "SSD 1TB": "bg-amber-100 text-amber-800",
 };
 
 export default function ChipBadge({ chip }: { chip: string }) {
